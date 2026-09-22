@@ -1,0 +1,14 @@
+{
+  "endpoints": [
+    {"id": "e0", "left_grain": "G1", "right_grain": "G2"},
+    {"id": "e1", "left_grain": "G2", "right_grain": "G1"},
+    {"id": "e2", "left_grain": "G1", "right_grain": "G2"},
+    {"id": "e3", "left_grain": "G2", "right_grain": "G1"}
+  ],
+  "candidates": [
+    {"a": "e0", "b": "e1", "cost": 3},
+    {"a": "e2", "b": "e3", "cost": 1},
+    {"a": "e1", "b": "e2", "cost": 2},
+    {"a": "e3", "b": "e0", "cost": 2}
+  ]
+}
