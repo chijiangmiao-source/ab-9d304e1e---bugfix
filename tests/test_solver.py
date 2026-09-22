@@ -154,6 +154,51 @@ class BruteForceComparisonTests(unittest.TestCase):
             {(e.a_index, e.b_index) for e in result.in_none}, {(0, 3), (1, 2)}
         )
 
+    def test_five_way_tie_forced_wrap_edge_in_all(self) -> None:
+        # 8 个断端交替 (G1,G2)/(G2,G1)。e0 唯一候选是 e0-e7（跨过首尾），
+        # 该弦必属于全部最优解；内部六个端点上的非交叉完美匹配共 5 个，
+        # 全部代价 0。回归多重同优下的精确计数与逐连接分类。
+        spec = [
+            ("G1", "G2") if i % 2 == 0 else ("G2", "G1") for i in range(8)
+        ]
+        edge_costs = {
+            (0, 7): 0,
+            (1, 2): 0,
+            (1, 4): 0,
+            (1, 6): 0,
+            (2, 3): 0,
+            (2, 5): 0,
+            (3, 4): 0,
+            (3, 6): 0,
+            (4, 5): 0,
+            (5, 6): 0,
+        }
+        endpoints = make_typed_endpoints(spec)
+        # 故意打乱顺序并交换部分候选的 a/b 方向提交。
+        ordered_edges = list(reversed(list(edge_costs)))
+        candidates = []
+        for k, (u, v) in enumerate(ordered_edges):
+            a, b = (v, u) if k % 2 == 0 else (u, v)
+            candidates.append(
+                Candidate(k, f"e{a}", f"e{b}", edge_costs[(u, v)])
+            )
+        result = solve(endpoints, candidates)
+        self.assertTrue(result.feasible)
+        self.assertEqual(result.total_cost, 0)
+        self.assertEqual(result.optimal_solution_count, 5)
+        self.assertEqual(
+            [(e.a_index, e.b_index) for e in result.in_all], [(0, 7)]
+        )
+        self.assertEqual(
+            {(e.a_index, e.b_index) for e in result.in_some},
+            set(edge_costs) - {(0, 7)},
+        )
+        self.assertEqual(result.in_none, ())
+        self.assertEqual(
+            [(c.a_index, c.b_index) for c in result.stitching],
+            [(0, 7), (1, 2), (3, 4), (5, 6)],
+        )
+
     def test_infeasible_odd_isolation(self) -> None:
         # 6 个断端，0 只能与 2 相连，导致顶点 1 被孤立在奇数区域。
         # 标签：(X,Y) 与 (Y,X) 反向对应；只提交其中部分候选。

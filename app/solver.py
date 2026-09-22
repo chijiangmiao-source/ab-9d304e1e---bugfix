@@ -75,7 +75,9 @@ def solve(endpoints: list[Endpoint], candidates: list[Candidate]) -> SolveResult
             u, v = v, u
         w[u * n + v] = cand.cost
 
-    size = n + 1
+    # 在长度 2n 的倍增序列上计算：起点 s 取 0..2n-L，使跨过数组首尾的圆弧
+    # 也能作为一个普通线性区间被统计（用于候选弦“外侧弧”的方案数）。
+    size = 2 * n + 1
     # cost[s][L]：None 表示无法完美匹配；L 仅偶数时有值。
     cost: list[list[int | None]] = [[None] * (n + 1) for _ in range(size)]
     ways: list[list[int]] = [[0] * (n + 1) for _ in range(size)]
@@ -90,8 +92,7 @@ def solve(endpoints: list[Endpoint], candidates: list[Candidate]) -> SolveResult
         return w[u * n + v] if u < v else w[v * n + u]
 
     for length in range(2, n + 1, 2):
-        last_start = n - length
-        for s in range(last_start + 1):
+        for s in range(2 * n - length + 1):
             end = s + length
             best: int | None = None
             count = 0
@@ -105,20 +106,14 @@ def solve(endpoints: list[Endpoint], candidates: list[Candidate]) -> SolveResult
                 if c1 is None or c2 is None:
                     continue
                 value = c + c1 + c2
+                branch = ways[s + 1][t - s - 1] * ways[t + 1][end - t - 1]
                 if best is None or value < best:
                     best = value
-                    count = min(
-                        2,
-                        ways[s + 1][t - s - 1]
-                        * ways[t + 1][end - t - 1],
-                    )
+                    count = branch
                 elif value == best:
-                    count = min(
-                        2,
-                        count
-                        + ways[s + 1][t - s - 1]
-                        * ways[t + 1][end - t - 1],
-                    )
+                    # 精确方案数（任意精度整数），不得截断：多重同优时
+                    # optimal_solution_count 与逐连接分类都依赖完整计数。
+                    count += branch
             cost[s][length] = best
             ways[s][length] = count
 
@@ -178,42 +173,31 @@ def solve(endpoints: list[Endpoint], candidates: list[Candidate]) -> SolveResult
     build(0, n)
     stitching.sort(key=lambda conn: (conn.a_index, conn.b_index))
 
-    # 每条候选弦：含该弦的最优匹配数 = 内侧弧最优方案数 × 外侧弧最优方案数。
+    # 每条候选弦 (p,q)（p<q）把圆周切成两段互不相交的圆弧：
+    #   内侧线性区间 [p+1, q-1]，长度 q-p-1；
+    #   跨过数组首尾的外侧弧 [q+1..n-1, 0..p-1]，
+    #   在倍增序列上就是起点 q+1、长度 n-(q-p)-1 的普通区间。
+    # 含该弦的最优匹配数 = W[p+1][内侧长度] × W[q+1][外侧长度]，
+    # 且要求该弦代价加两段最优代价恰好等于全局最优代价。
     in_all: list[AmbiguityEntry] = []
     in_some: list[AmbiguityEntry] = []
     in_none: list[AmbiguityEntry] = []
 
-    eligible: set[tuple[int, int]] = set()
-    pending = [(0, n)]
-    visited: set[tuple[int, int]] = set()
-    while pending:
-        s, length = pending.pop()
-        if length == 0 or (s, length) in visited:
-            continue
-        visited.add((s, length))
-        end = s + length
-        for t in range(s + 1, end, 2):
-            c = edge_cost(s, t)
-            if c < 0:
-                continue
-            left_length = t - s - 1
-            right_length = end - t - 1
-            c1 = cost[s + 1][left_length]
-            c2 = cost[t + 1][right_length]
-            if c1 is None or c2 is None:
-                continue
-            if c + c1 + c2 != cost[s][length]:
-                continue
-            eligible.add(tuple(sorted((s % n, t % n))))
-            pending.append((s + 1, left_length))
-            pending.append((t + 1, right_length))
-
     for cand in candidates:
         p, q = sorted((id_to_index[cand.a], id_to_index[cand.b]))
         entry = AmbiguityEntry(p, q, endpoints[p].id, endpoints[q].id)
-        if (p, q) not in eligible:
+        inner_len = q - p - 1
+        outer_len = n - (q - p) - 1
+        c_inner = cost[p + 1][inner_len]
+        c_outer = cost[q + 1][outer_len]
+        edge_ways = 0
+        if c_inner is not None and c_outer is not None:
+            edge_cost_value = w[p * n + q]
+            if edge_cost_value + c_inner + c_outer == total_cost:
+                edge_ways = ways[p + 1][inner_len] * ways[q + 1][outer_len]
+        if edge_ways == 0:
             in_none.append(entry)
-        elif total_ways == 1:
+        elif edge_ways == total_ways:
             in_all.append(entry)
         else:
             in_some.append(entry)
