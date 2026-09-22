@@ -120,6 +120,88 @@ class ServerTests(unittest.TestCase):
         status, _ = self.request("GET", "/nope")
         self.assertEqual(status, 404)
 
+    @staticmethod
+    def _five_optima_payload() -> dict:
+        """8 个断端、10 条零代价候选：共 5 个最低代价非交叉完整缝合。
+
+        e0–e7 是 e0 唯一可用的连接，必须出现在全部 5 个最优解中；
+        内部六个端点之间的 9 条候选各自只出现在部分最优解中。
+        """
+        return {
+            "endpoints": [
+                {"id": "e0", "left_grain": "G1", "right_grain": "G2"},
+                {"id": "e1", "left_grain": "G2", "right_grain": "G1"},
+                {"id": "e2", "left_grain": "G1", "right_grain": "G2"},
+                {"id": "e3", "left_grain": "G2", "right_grain": "G1"},
+                {"id": "e4", "left_grain": "G1", "right_grain": "G2"},
+                {"id": "e5", "left_grain": "G2", "right_grain": "G1"},
+                {"id": "e6", "left_grain": "G1", "right_grain": "G2"},
+                {"id": "e7", "left_grain": "G2", "right_grain": "G1"},
+            ],
+            "candidates": [
+                {"a": "e0", "b": "e7", "cost": 0},
+                {"a": "e1", "b": "e2", "cost": 0},
+                {"a": "e1", "b": "e4", "cost": 0},
+                {"a": "e1", "b": "e6", "cost": 0},
+                {"a": "e2", "b": "e3", "cost": 0},
+                {"a": "e2", "b": "e5", "cost": 0},
+                {"a": "e3", "b": "e4", "cost": 0},
+                {"a": "e3", "b": "e6", "cost": 0},
+                {"a": "e4", "b": "e5", "cost": 0},
+                {"a": "e5", "b": "e6", "cost": 0},
+            ],
+        }
+
+    def test_multi_optima_exact_count_and_ambiguity(self) -> None:
+        payload = json.dumps(self._five_optima_payload()).encode()
+        status, data = self.request("POST", "/api/v1/stitch", payload)
+        self.assertEqual(status, 200, data)
+        result = json.loads(data)
+        self.assertTrue(result["feasible"])
+        self.assertEqual(result["total_cost"], 0)
+        # 精确解数为 5，而非截断后的 2。
+        self.assertEqual(result["optimal_solution_count"], 5)
+        # 规范缝合与总代价保持不变。
+        self.assertEqual(
+            [(c["a"], c["b"], c["cost"]) for c in result["stitching"]],
+            [("e0", "e7", 0), ("e1", "e2", 0), ("e3", "e4", 0), ("e5", "e6", 0)],
+        )
+        ambiguity = result["ambiguity"]
+        self.assertEqual(
+            [(e["a"], e["b"]) for e in ambiguity["in_all"]], [("e0", "e7")]
+        )
+        self.assertEqual(
+            {(e["a"], e["b"]) for e in ambiguity["in_some"]},
+            {
+                ("e1", "e2"), ("e1", "e4"), ("e1", "e6"),
+                ("e2", "e3"), ("e2", "e5"),
+                ("e3", "e4"), ("e3", "e6"),
+                ("e4", "e5"), ("e5", "e6"),
+            },
+        )
+        self.assertEqual(ambiguity["in_none"], [])
+
+    def test_multi_optima_reversed_candidates_byte_identical(self) -> None:
+        original = self._five_optima_payload()
+        # 候选顺序反转且每条候选交换 a/b 方向：响应必须字节等价。
+        shuffled = {
+            "endpoints": original["endpoints"],
+            "candidates": [
+                {"a": c["b"], "b": c["a"], "cost": c["cost"]}
+                for c in reversed(original["candidates"])
+            ],
+        }
+        status1, data1 = self.request(
+            "POST", "/api/v1/stitch", json.dumps(original).encode()
+        )
+        status2, data2 = self.request(
+            "POST", "/api/v1/stitch", json.dumps(shuffled).encode()
+        )
+        self.assertEqual(status1, 200, data1)
+        self.assertEqual(status2, 200, data2)
+        self.assertEqual(data1, data2)
+        self.assertEqual(json.loads(data2)["optimal_solution_count"], 5)
+
     def test_repeated_submission_byte_identical(self) -> None:
         payload = json.dumps(
             {
